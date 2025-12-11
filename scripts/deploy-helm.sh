@@ -38,17 +38,7 @@ fi
 echo -e "${GREEN}✓ All prerequisites found${NC}"
 echo ""
 
-# Step 2: Create Kind cluster
-echo -e "${YELLOW}Step 2: Creating Kind cluster...${NC}"
-if kind get clusters | grep -q "^validator-cluster$"; then
-    echo -e "${GREEN}✓ Kind cluster 'validator-cluster' already exists${NC}"
-else
-    kind create cluster --name validator-cluster --config "${CHART_DIR}/../kind-config.yaml"
-    echo -e "${GREEN}✓ Kind cluster created${NC}"
-fi
-echo ""
-
-# Step 3: Install local-path-provisioner
+# Step 2: Install local-path-provisioner
 echo -e "${YELLOW}Step 3: Installing local-path-provisioner...${NC}"
 if kubectl get storageclass local-path &> /dev/null; then
     echo -e "${GREEN}✓ local-path-provisioner already installed${NC}"
@@ -59,7 +49,7 @@ else
 fi
 echo ""
 
-# Step 4: Prepare secrets
+# Step 3: Prepare secrets
 echo -e "${YELLOW}Step 4: Preparing secrets...${NC}"
 if [ ! -f "${SECRETS_DIR}/jwt.hex" ]; then
     echo -e "${RED}❌ JWT secret not found at ${SECRETS_DIR}/jwt.hex${NC}"
@@ -91,13 +81,13 @@ EOF
 echo -e "${GREEN}✓ Secrets prepared${NC}"
 echo ""
 
-# Step 5: Lint Helm chart
+# Step 4: Lint Helm chart
 echo -e "${YELLOW}Step 5: Linting Helm chart...${NC}"
 helm lint "${CHART_DIR}" -f "${VALUES_FILE}"
 echo -e "${GREEN}✓ Helm chart validation passed${NC}"
 echo ""
 
-# Step 6: Install/Upgrade Helm chart
+# Step 5: Install/Upgrade Helm chart
 echo -e "${YELLOW}Step 6: Deploying Ethereum validator...${NC}"
 
 # Delete namespace if it exists without Helm labels (from previous failed run)
@@ -189,7 +179,7 @@ helm upgrade --install ${RELEASE_NAME} "${CHART_DIR}" \
 echo -e "${GREEN}✓ Helm chart deployed successfully${NC}"
 echo ""
 
-# Step 7: Wait for pods to be ready
+# Step 6: Wait for pods to be ready
 echo -e "${YELLOW}Step 7: Waiting for pods to be ready...${NC}"
 echo ""
 
@@ -208,7 +198,7 @@ kubectl wait --for=condition=ready pod -l component=monitoring -n monitoring --t
 echo -e "${GREEN}✓ All pods are ready${NC}"
 echo ""
 
-# Step 8: Show status
+# Step 7: Show status
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Deployment Complete!${NC}"
 echo -e "${BLUE}========================================${NC}"
