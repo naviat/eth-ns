@@ -1,0 +1,22 @@
+apiVersion: v2
+name: ethereum-validator
+description: Production-grade Ethereum validator infrastructure with sentry nodes and monitoring
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - ethereum
+  - validator
+  - blockchain
+  - nethermind
+  - lighthouse
+  - prometheus
+  - grafana
+maintainers:
+  - name: Nansen DevOps Team
+    email: devops@nansen.ai
+home: https://github.com/nansen/ethereum-validator
+sources:
+  - https://github.com/NethermindEth/nethermind
+  - https://github.com/sigp/lighthouse
+icon: https://ethereum.org/static/ethereum-icon.png

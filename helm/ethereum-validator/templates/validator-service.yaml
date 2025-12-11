@@ -1,0 +1,44 @@
+{{- if .Values.validator.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: validator-consensus
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: validator
+    client: consensus
+spec:
+  type: {{ .Values.validator.service.consensus.type }}
+  ports:
+  - name: http
+    port: {{ .Values.validator.service.consensus.port }}
+    targetPort: http
+  - name: metrics
+    port: 5054
+    targetPort: metrics
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    component: validator
+    client: consensus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validator-client
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: validator
+    client: validator
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 5064
+    targetPort: metrics
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    component: validator
+    client: validator
+{{- end }}

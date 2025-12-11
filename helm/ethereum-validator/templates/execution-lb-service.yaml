@@ -1,0 +1,29 @@
+{{- if .Values.validator.enabled }}
+---
+# Load balancer service for execution endpoints
+# Provides HA by distributing requests across both sentry execution clients
+apiVersion: v1
+kind: Service
+metadata:
+  name: execution-lb
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: execution-lb
+spec:
+  type: ClusterIP
+  # Session affinity ensures validator sticks to one execution client
+  # This is important for consistent state during operations
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600  # 1 hour
+  ports:
+  - name: engine
+    port: 8551
+    targetPort: 8551
+    protocol: TCP
+  selector:
+    # Selects ALL sentry execution pods
+    client: execution
+{{- end }}

@@ -1,0 +1,249 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheus.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.monitoring.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.monitoring.prometheus.scrapeInterval }}
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: []
+
+    rule_files:
+      - /etc/prometheus/alerts.yml
+
+    scrape_configs:
+      # Sentry1 Execution
+      - job_name: 'sentry1-execution'
+        static_configs:
+          - targets: ['sentry1-execution.{{ .Values.global.namespace.validators }}.svc.cluster.local:6060']
+            labels:
+              component: 'sentry1'
+              client: 'execution'
+
+      # Sentry1 Consensus
+      - job_name: 'sentry1-consensus'
+        static_configs:
+          - targets: ['sentry1-consensus.{{ .Values.global.namespace.validators }}.svc.cluster.local:5054']
+            labels:
+              component: 'sentry1'
+              client: 'consensus'
+
+      # Sentry2 Execution
+      - job_name: 'sentry2-execution'
+        static_configs:
+          - targets: ['sentry2-execution.{{ .Values.global.namespace.validators }}.svc.cluster.local:6060']
+            labels:
+              component: 'sentry2'
+              client: 'execution'
+
+      # Sentry2 Consensus
+      - job_name: 'sentry2-consensus'
+        static_configs:
+          - targets: ['sentry2-consensus.{{ .Values.global.namespace.validators }}.svc.cluster.local:5054']
+            labels:
+              component: 'sentry2'
+              client: 'consensus'
+
+      # Validator Consensus
+      - job_name: 'validator-consensus'
+        static_configs:
+          - targets: ['validator-consensus.{{ .Values.global.namespace.validators }}.svc.cluster.local:5054']
+            labels:
+              component: 'validator'
+              client: 'consensus'
+
+      # Validator Client
+      - job_name: 'validator-client'
+        static_configs:
+          - targets: ['validator-client.{{ .Values.global.namespace.validators }}.svc.cluster.local:5064']
+            labels:
+              component: 'validator'
+              client: 'validator'
+
+  alerts.yml: |
+    groups:
+      - name: validator-alerts
+        interval: 1m
+        rules:
+          - alert: ValidatorDown
+            expr: up{job=~"validator.*"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Validator is down"
+              description: "Validator has been down for more than 5 minutes"
+
+          - alert: MissedAttestations
+            expr: validator_monitor_prev_epoch_on_chain_attester_miss > 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Validator missed attestations"
+              description: "Validator missed one or more attestations in the previous epoch"
+
+          - alert: DiskSpaceCritical
+            expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Disk space critically low"
+              description: "Less than 10% disk space remaining"
+
+          - alert: NodeNotSynced
+            expr: ethereum_blockchain_height - on(instance) lighthouse_beacon_head_slot > 100
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node not synced"
+              description: "Node is more than 100 slots behind chain head"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: {{ .Values.global.namespace.monitoring }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      component: monitoring
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        component: monitoring
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: prometheus
+        image: {{ .Values.monitoring.prometheus.image }}
+        imagePullPolicy: IfNotPresent
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--storage.tsdb.retention.time={{ .Values.monitoring.prometheus.retention }}'
+          - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+          - '--web.console.templates=/usr/share/prometheus/consoles'
+        ports:
+        - name: web
+          containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        - name: data
+          mountPath: /prometheus
+        resources:
+          {{- toYaml .Values.monitoring.prometheus.resources | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: prometheus-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.prometheus.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+spec:
+  type: {{ .Values.monitoring.prometheus.service.type }}
+  ports:
+  - name: web
+    port: {{ .Values.monitoring.prometheus.service.port }}
+    targetPort: web
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    component: monitoring
+    app: prometheus
+{{- end }}

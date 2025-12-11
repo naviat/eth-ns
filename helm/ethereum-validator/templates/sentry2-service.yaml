@@ -1,0 +1,50 @@
+{{- if .Values.sentry2.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentry2-execution
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: sentry2
+    client: execution
+spec:
+  type: {{ .Values.sentry2.service.execution.type }}
+  ports:
+  - name: jsonrpc
+    port: {{ .Values.sentry2.service.execution.port }}
+    targetPort: jsonrpc
+  - name: engine
+    port: 8551
+    targetPort: engine
+  - name: metrics
+    port: 6060
+    targetPort: metrics
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    component: sentry2
+    client: execution
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentry2-consensus
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: sentry2
+    client: consensus
+spec:
+  type: {{ .Values.sentry2.service.consensus.type }}
+  ports:
+  - name: http
+    port: {{ .Values.sentry2.service.consensus.port }}
+    targetPort: http
+  - name: metrics
+    port: 5054
+    targetPort: metrics
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    component: sentry2
+    client: consensus
+{{- end }}

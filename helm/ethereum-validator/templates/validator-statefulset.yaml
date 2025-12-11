@@ -1,0 +1,202 @@
+{{- if .Values.validator.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: validator-consensus
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: validator
+    client: consensus
+spec:
+  serviceName: validator-consensus
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      component: validator
+      client: consensus
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        component: validator
+        client: consensus
+    spec:
+      {{- if .Values.rbac.serviceAccount.create }}
+      serviceAccountName: {{ include "ethereum-validator.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: lighthouse
+        image: {{ .Values.validator.consensus.image }}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- include "ethereum-validator.securityContext" . | nindent 10 }}
+        command:
+          - lighthouse
+        args:
+          - beacon_node
+          - --network={{ .Values.global.network }}
+          - --datadir=/data
+          - --execution-endpoint=http://execution-lb:8551
+          - --execution-jwt=/secrets/jwt.hex
+          - --checkpoint-sync-url={{ .Values.validator.consensus.config.checkpointSyncUrl }}
+          - --http
+          - --http-address=0.0.0.0
+          - --http-port={{ .Values.validator.consensus.config.httpPort }}
+          - --metrics
+          - --metrics-address=0.0.0.0
+          - --metrics-port={{ .Values.validator.consensus.config.metricsPort }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.validator.consensus.config.httpPort }}
+        - name: metrics
+          containerPort: {{ .Values.validator.consensus.config.metricsPort }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: jwt-secret
+          mountPath: /secrets
+          readOnly: true
+        resources:
+          {{- toYaml .Values.validator.consensus.resources | nindent 10 }}
+        {{- if .Values.healthCheck.enabled }}
+        livenessProbe:
+          tcpSocket:
+            port: http
+          {{- toYaml .Values.healthCheck.livenessProbe | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: http
+          {{- toYaml .Values.healthCheck.readinessProbe | nindent 10 }}
+        {{- end }}
+      volumes:
+      - name: jwt-secret
+        secret:
+          secretName: {{ include "ethereum-validator.fullname" . }}-jwt
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ include "ethereum-validator.storageClass.consensus" . }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.consensus.size }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: validator-client
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: validator
+    client: validator
+spec:
+  serviceName: validator-client
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      component: validator
+      client: validator
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        component: validator
+        client: validator
+    spec:
+      {{- if .Values.rbac.serviceAccount.create }}
+      serviceAccountName: {{ include "ethereum-validator.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      initContainers:
+      - name: import-keys
+        image: {{ .Values.validator.validatorClient.image }}
+        command:
+          - sh
+          - -c
+          - |
+            if [ ! -d /data/validators ]; then
+              lighthouse account validator import \
+                --directory /validator-keys \
+                --datadir /data \
+                --network={{ .Values.global.network }} \
+                --reuse-password
+            fi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: validator-keys
+          mountPath: /validator-keys
+          readOnly: true
+      containers:
+      - name: lighthouse
+        image: {{ .Values.validator.validatorClient.image }}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- include "ethereum-validator.securityContext" . | nindent 10 }}
+        command:
+          - lighthouse
+        args:
+          - validator_client
+          - --network={{ .Values.global.network }}
+          - --datadir=/data
+          - --beacon-nodes=http://validator-consensus:{{ .Values.validator.consensus.config.httpPort }}
+          - --metrics
+          - --metrics-address=0.0.0.0
+          - --metrics-port={{ .Values.validator.validatorClient.config.metricsPort }}
+          - --graffiti={{ .Values.validator.validatorClient.config.graffiti | quote }}
+          - --suggested-fee-recipient=0x0000000000000000000000000000000000000000
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.validator.validatorClient.config.metricsPort }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          {{- toYaml .Values.validator.validatorClient.resources | nindent 10 }}
+      volumes:
+      - name: validator-keys
+        secret:
+          secretName: {{ include "ethereum-validator.fullname" . }}-validator-keys
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ include "ethereum-validator.storageClass.validator" . }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.validator.size }}
+{{- end }}

@@ -1,0 +1,211 @@
+{{- if .Values.sentry1.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sentry1-execution
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: sentry1
+    client: execution
+spec:
+  serviceName: sentry1-execution
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      component: sentry1
+      client: execution
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        component: sentry1
+        client: execution
+    spec:
+      {{- if .Values.rbac.serviceAccount.create }}
+      serviceAccountName: {{ include "ethereum-validator.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: nethermind
+        image: {{ .Values.sentry1.execution.image }}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- include "ethereum-validator.securityContext" . | nindent 10 }}
+        command:
+          - /nethermind/nethermind
+        args:
+          - --config={{ .Values.global.network }}
+          - --datadir=/data
+          - --Sync.FastSync=true
+          - --Sync.SnapSync=true
+          - --Sync.AncientBodiesBarrier=1
+          - --Sync.AncientReceiptsBarrier=1
+          - --Pruning.Mode={{ .Values.sentry1.execution.config.pruningMode }}
+          - --Pruning.CacheMb={{ .Values.sentry1.execution.config.pruningCacheMb }}
+          - --Network.MaxActivePeers={{ .Values.sentry1.execution.config.maxPeers }}
+          - --JsonRpc.Enabled={{ .Values.sentry1.execution.config.jsonRpcEnabled }}
+          - --JsonRpc.Port={{ .Values.sentry1.execution.config.jsonRpcPort }}
+          - --JsonRpc.Host=0.0.0.0
+          - --JsonRpc.EnginePort={{ .Values.sentry1.execution.config.enginePort }}
+          - --JsonRpc.EngineHost=0.0.0.0
+          - --JsonRpc.JwtSecretFile=/secrets/jwt.hex
+          - --Metrics.Enabled={{ .Values.sentry1.execution.config.metricsEnabled }}
+          - --Metrics.ExposePort={{ .Values.sentry1.execution.config.metricsPort }}
+        ports:
+        - name: jsonrpc
+          containerPort: {{ .Values.sentry1.execution.config.jsonRpcPort }}
+        - name: engine
+          containerPort: {{ .Values.sentry1.execution.config.enginePort }}
+        - name: metrics
+          containerPort: {{ .Values.sentry1.execution.config.metricsPort }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: jwt-secret
+          mountPath: /secrets
+          readOnly: true
+        resources:
+          {{- toYaml .Values.sentry1.execution.resources | nindent 10 }}
+        {{- if .Values.healthCheck.enabled }}
+        livenessProbe:
+          tcpSocket:
+            port: jsonrpc
+          {{- toYaml .Values.healthCheck.livenessProbe | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: jsonrpc
+          {{- toYaml .Values.healthCheck.readinessProbe | nindent 10 }}
+        {{- end }}
+      volumes:
+      - name: jwt-secret
+        secret:
+          secretName: {{ include "ethereum-validator.fullname" . }}-jwt
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ include "ethereum-validator.storageClass.execution" . }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.execution.size }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sentry1-consensus
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: sentry1
+    client: consensus
+spec:
+  serviceName: sentry1-consensus
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      component: sentry1
+      client: consensus
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        component: sentry1
+        client: consensus
+    spec:
+      {{- if .Values.rbac.serviceAccount.create }}
+      serviceAccountName: {{ include "ethereum-validator.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: lighthouse
+        image: {{ .Values.sentry1.consensus.image }}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- include "ethereum-validator.securityContext" . | nindent 10 }}
+        command:
+          - lighthouse
+        args:
+          - beacon_node
+          - --network={{ .Values.global.network }}
+          - --datadir=/data
+          - --execution-endpoint=http://sentry1-execution:{{ .Values.sentry1.execution.config.enginePort }}
+          - --execution-jwt=/secrets/jwt.hex
+          - --checkpoint-sync-url={{ .Values.sentry1.consensus.config.checkpointSyncUrl }}
+          {{- if .Values.mevBoost.enabled }}
+          - --builder=http://mev-boost:{{ .Values.mevBoost.port }}
+          {{- end }}
+          - --http
+          - --http-address=0.0.0.0
+          - --http-port={{ .Values.sentry1.consensus.config.httpPort }}
+          - --metrics
+          - --metrics-address=0.0.0.0
+          - --metrics-port={{ .Values.sentry1.consensus.config.metricsPort }}
+          - --disable-backfill-rate-limiting
+        ports:
+        - name: http
+          containerPort: {{ .Values.sentry1.consensus.config.httpPort }}
+        - name: metrics
+          containerPort: {{ .Values.sentry1.consensus.config.metricsPort }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: jwt-secret
+          mountPath: /secrets
+          readOnly: true
+        resources:
+          {{- toYaml .Values.sentry1.consensus.resources | nindent 10 }}
+        {{- if .Values.healthCheck.enabled }}
+        livenessProbe:
+          tcpSocket:
+            port: http
+          {{- toYaml .Values.healthCheck.livenessProbe | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: http
+          {{- toYaml .Values.healthCheck.readinessProbe | nindent 10 }}
+        {{- end }}
+      volumes:
+      - name: jwt-secret
+        secret:
+          secretName: {{ include "ethereum-validator.fullname" . }}-jwt
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ include "ethereum-validator.storageClass.consensus" . }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.consensus.size }}
+{{- end }}

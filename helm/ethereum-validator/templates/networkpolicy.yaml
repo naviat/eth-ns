@@ -1,0 +1,400 @@
+{{- if .Values.networkPolicy.enabled }}
+---
+# =============================================================================
+# SENTRY 1 NETWORK POLICY - Public nodes with controlled egress
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentry1-policy
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: sentry1
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Allow validator to access execution Engine API (via load balancer)
+  - from:
+    - podSelector:
+        matchLabels:
+          component: validator
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry1.execution.config.enginePort }}  # 8551
+
+  # Allow validator to access consensus HTTP API
+  - from:
+    - podSelector:
+        matchLabels:
+          component: validator
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry1.consensus.config.httpPort }}  # 5052
+
+  # Allow Prometheus metrics scraping
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry1.execution.config.metricsPort }}  # 6060
+    - protocol: TCP
+      port: {{ .Values.sentry1.consensus.config.metricsPort }}  # 5054
+
+  # Allow P2P ingress (for peer connections)
+  - ports:
+    - protocol: TCP
+      port: 30303  # Execution P2P
+    - protocol: UDP
+      port: 30303
+    - protocol: TCP
+      port: 9000   # Consensus P2P
+    - protocol: UDP
+      port: 9000
+
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow Ethereum execution P2P (internet)
+  - ports:
+    - protocol: TCP
+      port: 30303
+    - protocol: UDP
+      port: 30303
+
+  # Allow Ethereum consensus P2P (internet)
+  - ports:
+    - protocol: TCP
+      port: 9000
+    - protocol: UDP
+      port: 9000
+
+  # Allow HTTPS for checkpoint sync and MEV relays
+  - ports:
+    - protocol: TCP
+      port: 443
+
+  # Allow MEV-Boost internal connection
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mev-boost
+    ports:
+    - protocol: TCP
+      port: {{ .Values.mevBoost.port }}
+
+  # Allow connection to own execution client (consensus → execution)
+  - to:
+    - podSelector:
+        matchLabels:
+          component: sentry1
+          client: execution
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry1.execution.config.enginePort }}
+
+---
+# =============================================================================
+# SENTRY 2 NETWORK POLICY
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentry2-policy
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: sentry2
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Allow validator to access execution Engine API
+  - from:
+    - podSelector:
+        matchLabels:
+          component: validator
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry2.execution.config.enginePort }}
+
+  # Allow validator to access consensus HTTP API
+  - from:
+    - podSelector:
+        matchLabels:
+          component: validator
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry2.consensus.config.httpPort }}
+
+  # Allow Prometheus metrics scraping
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry2.execution.config.metricsPort }}
+    - protocol: TCP
+      port: {{ .Values.sentry2.consensus.config.metricsPort }}
+
+  # Allow P2P ingress
+  - ports:
+    - protocol: TCP
+      port: 30303
+    - protocol: UDP
+      port: 30303
+    - protocol: TCP
+      port: 9000
+    - protocol: UDP
+      port: 9000
+
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow Ethereum execution P2P
+  - ports:
+    - protocol: TCP
+      port: 30303
+    - protocol: UDP
+      port: 30303
+
+  # Allow Ethereum consensus P2P
+  - ports:
+    - protocol: TCP
+      port: 9000
+    - protocol: UDP
+      port: 9000
+
+  # Allow HTTPS
+  - ports:
+    - protocol: TCP
+      port: 443
+
+  # Allow MEV-Boost
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mev-boost
+    ports:
+    - protocol: TCP
+      port: {{ .Values.mevBoost.port }}
+
+  # Allow connection to own execution client
+  - to:
+    - podSelector:
+        matchLabels:
+          component: sentry2
+          client: execution
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry2.execution.config.enginePort }}
+
+---
+# =============================================================================
+# VALIDATOR NETWORK POLICY - Maximum isolation
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: validator-policy
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: validator
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Only allow Prometheus metrics scraping
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: {{ .Values.validator.consensus.config.metricsPort }}
+    - protocol: TCP
+      port: {{ .Values.validator.validatorClient.config.metricsPort }}
+
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow connection to sentry execution pods (via execution-lb)
+  - to:
+    - podSelector:
+        matchLabels:
+          client: execution
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry1.execution.config.enginePort }}
+
+  # Allow checkpoint sync (HTTPS)
+  - ports:
+    - protocol: TCP
+      port: 443
+
+---
+# =============================================================================
+# MEV-BOOST NETWORK POLICY
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mev-boost-policy
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mev-boost
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Allow sentry consensus nodes
+  - from:
+    - podSelector:
+        matchLabels:
+          client: consensus
+    ports:
+    - protocol: TCP
+      port: {{ .Values.mevBoost.port }}
+
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow HTTPS to MEV relays
+  - ports:
+    - protocol: TCP
+      port: 443
+
+---
+# =============================================================================
+# MONITORING NETWORK POLICIES
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-policy
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Allow Grafana
+  - from:
+    - podSelector:
+        matchLabels:
+          app: grafana
+    ports:
+    - protocol: TCP
+      port: 9090
+
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow scraping all pods
+  - to:
+    - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-policy
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Allow from anywhere (dashboard access via browser or ingress)
+  - {}
+
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow Prometheus (cross-namespace)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.global.namespace.validators }}
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9090
+{{- end }}

@@ -1,0 +1,403 @@
+# Default values for ethereum-validator Helm chart
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global settings
+global:
+  network: sepolia # ethereum network (mainnet, sepolia, goerli)
+  namespace:
+    validators: validators
+    monitoring: monitoring
+
+# Storage configuration
+storage:
+  storageClass: local-path # Use local-path-provisioner for Kind, change to gp3/pd-ssd for cloud
+
+  # PVC sizes
+  execution:
+    size: 300Gi
+    storageClass: "" # Override global if needed
+  consensus:
+    size: 100Gi
+    storageClass: ""
+  validator:
+    size: 10Gi
+    storageClass: ""
+  prometheus:
+    size: 50Gi
+    storageClass: ""
+  grafana:
+    size: 10Gi
+    storageClass: ""
+
+# Secrets (will be created from files)
+secrets:
+  # JWT secret for execution <-> consensus auth
+  jwtSecret: "" # Will be loaded from secret
+
+  # Validator keys
+  validatorKeys:
+    enabled: true
+    # Keys will be loaded from secrets/validator-keys directory
+
+# Sentry Node 1 Configuration
+sentry1:
+  enabled: true
+
+  execution:
+    image: nethermind/nethermind:1.35.4
+    resources:
+      requests:
+        memory: "8Gi"
+        cpu: "2"
+      limits:
+        memory: "16Gi"
+        cpu: "4"
+
+    # Nethermind configuration
+    config:
+      syncMode: SnapSync
+      pruningMode: Full
+      pruningCacheMb: 4096
+      maxPeers: 50
+      metricsEnabled: true
+      metricsPort: 6060
+      jsonRpcEnabled: true
+      jsonRpcPort: 8545
+      enginePort: 8551
+
+  consensus:
+    image: sigp/lighthouse:v8.0.1
+    resources:
+      requests:
+        memory: "4Gi"
+        cpu: "2"
+      limits:
+        memory: "8Gi"
+        cpu: "4"
+
+    config:
+      checkpointSyncUrl: "https://checkpoint-sync.sepolia.ethpandaops.io"
+      metricsEnabled: true
+      metricsPort: 5054
+      httpPort: 5052
+
+  # Service configuration
+  service:
+    execution:
+      type: ClusterIP
+      port: 8545
+    consensus:
+      type: ClusterIP
+      port: 5052
+
+# Sentry Node 2 Configuration (same structure as sentry1)
+sentry2:
+  enabled: true
+
+  execution:
+    image: nethermind/nethermind:1.35.4
+    resources:
+      requests:
+        memory: "8Gi"
+        cpu: "2"
+      limits:
+        memory: "16Gi"
+        cpu: "4"
+
+    config:
+      syncMode: SnapSync
+      pruningMode: Full
+      pruningCacheMb: 4096
+      maxPeers: 50
+      metricsEnabled: true
+      metricsPort: 6060
+      jsonRpcEnabled: true
+      jsonRpcPort: 8545
+      enginePort: 8551
+
+  consensus:
+    image: sigp/lighthouse:v8.0.1
+    resources:
+      requests:
+        memory: "4Gi"
+        cpu: "2"
+      limits:
+        memory: "8Gi"
+        cpu: "4"
+
+    config:
+      checkpointSyncUrl: "https://checkpoint-sync.sepolia.ethpandaops.io"
+      metricsEnabled: true
+      metricsPort: 5054
+      httpPort: 5052
+
+  service:
+    execution:
+      type: ClusterIP
+      port: 8545
+    consensus:
+      type: ClusterIP
+      port: 5052
+
+# Validator Configuration
+validator:
+  enabled: true
+
+  consensus:
+    image: sigp/lighthouse:v8.0.1
+    resources:
+      requests:
+        memory: "4Gi"
+        cpu: "2"
+      limits:
+        memory: "8Gi"
+        cpu: "4"
+
+    config:
+      metricsEnabled: true
+      metricsPort: 5054
+      httpPort: 5052
+      checkpointSyncUrl: "https://checkpoint-sync.sepolia.ethpandaops.io"
+
+      # High Availability: Uses execution-lb Kubernetes Service
+      # Load balances between sentry1-execution and sentry2-execution
+      # Lighthouse only supports single --execution-endpoint
+      # K8s service provides automatic failover between both sentries
+
+  validatorClient:
+    image: sigp/lighthouse:v8.0.1
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1"
+      limits:
+        memory: "4Gi"
+        cpu: "2"
+
+    config:
+      metricsEnabled: true
+      metricsPort: 5064
+      graffiti: "Nansen Validator"
+      # Number of validator keys to import
+      validatorCount: 1
+
+  service:
+    consensus:
+      type: ClusterIP
+      port: 5052
+
+# Monitoring Configuration
+monitoring:
+  enabled: true
+
+  prometheus:
+    enabled: true
+    image: prom/prometheus:latest
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1"
+      limits:
+        memory: "4Gi"
+        cpu: "2"
+
+    retention: 30d
+    scrapeInterval: 15s
+
+    service:
+      type: ClusterIP
+      port: 9090
+
+    # Scrape targets
+    scrapeConfigs:
+      - job_name: sentry1-execution
+        metricsPath: /metrics
+        port: 6060
+      - job_name: sentry1-consensus
+        metricsPath: /metrics
+        port: 5054
+      - job_name: sentry2-execution
+        metricsPath: /metrics
+        port: 6060
+      - job_name: sentry2-consensus
+        metricsPath: /metrics
+        port: 5054
+      - job_name: validator-consensus
+        metricsPath: /metrics
+        port: 5054
+      - job_name: validator-client
+        metricsPath: /metrics
+        port: 5064
+
+    # Alert rules
+    alerting:
+      enabled: true
+      rules:
+        - name: validator-alerts
+          interval: 1m
+          rules:
+            - alert: ValidatorDown
+              expr: up{job=~"validator.*"} == 0
+              for: 5m
+              severity: critical
+            - alert: MissedAttestations
+              expr: validator_monitor_prev_epoch_on_chain_attester_miss > 0
+              for: 2m
+              severity: warning
+            - alert: DiskSpaceCritical
+              expr: node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.1
+              for: 5m
+              severity: critical
+
+  grafana:
+    enabled: true
+    image: grafana/grafana:latest
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "500m"
+      limits:
+        memory: "1Gi"
+        cpu: "1"
+
+    adminPassword: admin # Change in production!
+
+    service:
+      type: ClusterIP  # Changed from NodePort since we're using Ingress
+      port: 3000
+
+    # Ingress configuration for external access
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /
+      hosts:
+        - host: grafana.local  # Change to your actual hostname or use IP
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []
+      # Uncomment for TLS/HTTPS:
+      # tls:
+      #   - secretName: grafana-tls
+      #     hosts:
+      #       - grafana.local
+
+    # Datasources
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus:9090
+        isDefault: true
+
+    # Dashboards
+    dashboards:
+      enabled: true
+      # Dashboard JSON files will be loaded from ConfigMap
+
+# RBAC Configuration
+rbac:
+  create: true
+  serviceAccount:
+    create: true
+    name: ethereum-validator
+    annotations: {}
+
+# MEV-Boost Configuration (for block building)
+mevBoost:
+  enabled: true
+  image: flashbots/mev-boost:latest
+  port: 18550
+
+  # Configurable relay list for MEV-Boost
+  # Sepolia test relays
+  relays:
+    - https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-sepolia.flashbots.net
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Network Policies (for production security)
+networkPolicy:
+  enabled: true # Changed to true for security requirements
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Validator should only talk to sentries, not internet
+  validator:
+    allowedEgress:
+      - sentry1
+      - sentry2
+      - monitoring
+
+  # Sentries can talk to internet for P2P
+  sentry:
+    allowedEgress:
+      - internet
+      - monitoring
+
+# Pod Security
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false # Validators need to write to disk
+
+# Health checks
+healthCheck:
+  enabled: false
+
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Annotations
+annotations: {}
+
+# Labels
+labels:
+  app: ethereum-validator
+  network: sepolia
+
+# Node selector (for multi-node clusters)
+nodeSelector: {}
+
+# Tolerations (for tainted nodes)
+tolerations: []
+
+# Affinity rules (e.g., spread across nodes)
+affinity:
+  # Anti-affinity to spread sentries across nodes
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - ethereum-validator
+          topologyKey: kubernetes.io/hostname

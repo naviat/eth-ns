@@ -1,0 +1,103 @@
+{{- if .Values.mevBoost.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ethereum-validator.fullname" . }}-mev-relays
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+data:
+  relays.txt: |
+    {{- range .Values.mevBoost.relays }}
+    {{ . }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mev-boost
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    app: mev-boost
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      app: mev-boost
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        app: mev-boost
+    spec:
+      {{- if .Values.rbac.serviceAccount.create }}
+      serviceAccountName: {{ include "ethereum-validator.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: mev-boost
+        image: {{ .Values.mevBoost.image }}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- include "ethereum-validator.securityContext" . | nindent 10 }}
+        args:
+          - -{{ .Values.global.network }}
+          {{- range .Values.mevBoost.relays }}
+          - -relay
+          - {{ . }}
+          {{- end }}
+          - -addr
+          - 0.0.0.0:{{ .Values.mevBoost.port }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.mevBoost.port }}
+        resources:
+          {{- toYaml .Values.mevBoost.resources | nindent 10 }}
+        {{- if .Values.healthCheck.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: http
+          {{- toYaml .Values.healthCheck.livenessProbe | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          {{- toYaml .Values.healthCheck.readinessProbe | nindent 10 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mev-boost
+  namespace: {{ .Values.global.namespace.validators }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    app: mev-boost
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: {{ .Values.mevBoost.port }}
+    targetPort: http
+    protocol: TCP
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    app: mev-boost
+{{- end }}

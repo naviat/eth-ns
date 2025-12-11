@@ -1,0 +1,60 @@
+# Secrets and sensitive data
+secrets/*
+!secrets/.gitkeep
+*.hex
+*.key
+*.pem
+jwt.txt
+password.txt
+temp/
+docs/
+# Validator keys
+keys/*
+!keys/.gitkeep
+keystores/
+*.json
+validator_keys/
+
+# Data directories (blockchain data)
+data/*
+!data/.gitkeep
+
+# Environment files
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore all Markdown files…
+*.md
+!README.md
+!README.MD
+!Readme.md
+!HOW_TO.md
+!runbooks/*.md
+!runbooks/**/*.md
+
+# Temporary files
+tmp/
+temp/
+*.tmp

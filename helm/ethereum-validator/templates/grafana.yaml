@@ -1,0 +1,232 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.grafana.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    {{- range .Values.monitoring.grafana.datasources }}
+      - name: {{ .name }}
+        type: {{ .type }}
+        access: proxy
+        url: {{ .url }}
+        isDefault: {{ .isDefault }}
+        editable: false
+    {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-config
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-validator
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+    dashboard: validator
+data:
+  validator-overview.json: |
+    {
+      "dashboard": {
+        "title": "Ethereum Validator Overview",
+        "panels": [
+          {
+            "title": "Validator Status",
+            "targets": [
+              {
+                "expr": "up{job=~\"validator.*\"}",
+                "legendFormat": "{{ "{{" }}job{{ "}}" }}"
+              }
+            ],
+            "type": "stat"
+          },
+          {
+            "title": "Attestation Performance",
+            "targets": [
+              {
+                "expr": "rate(validator_monitor_prev_epoch_on_chain_attester_hit[5m])",
+                "legendFormat": "Successful"
+              },
+              {
+                "expr": "rate(validator_monitor_prev_epoch_on_chain_attester_miss[5m])",
+                "legendFormat": "Missed"
+              }
+            ],
+            "type": "graph"
+          },
+          {
+            "title": "Peer Count",
+            "targets": [
+              {
+                "expr": "lighthouse_peers",
+                "legendFormat": "{{ "{{" }}job{{ "}}" }}"
+              }
+            ],
+            "type": "graph"
+          },
+          {
+            "title": "Sync Distance",
+            "targets": [
+              {
+                "expr": "lighthouse_beacon_sync_eth2_fallback_connected",
+                "legendFormat": "{{ "{{" }}job{{ "}}" }}"
+              }
+            ],
+            "type": "graph"
+          },
+          {
+            "title": "Memory Usage",
+            "targets": [
+              {
+                "expr": "process_resident_memory_bytes{job=~\".*\"}",
+                "legendFormat": "{{ "{{" }}job{{ "}}" }}"
+              }
+            ],
+            "type": "graph"
+          },
+          {
+            "title": "CPU Usage",
+            "targets": [
+              {
+                "expr": "rate(process_cpu_seconds_total{job=~\".*\"}[5m])",
+                "legendFormat": "{{ "{{" }}job{{ "}}" }}"
+              }
+            ],
+            "type": "graph"
+          }
+        ],
+        "refresh": "10s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ethereum-validator.selectorLabels" . | nindent 6 }}
+      component: monitoring
+      app: grafana
+  template:
+    metadata:
+      labels:
+        {{- include "ethereum-validator.selectorLabels" . | nindent 8 }}
+        component: monitoring
+        app: grafana
+    spec:
+      securityContext:
+        {{- include "ethereum-validator.podSecurityContext" . | nindent 8 }}
+      containers:
+      - name: grafana
+        image: {{ .Values.monitoring.grafana.image }}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: {{ .Values.monitoring.grafana.adminPassword | quote }}
+        - name: GF_INSTALL_PLUGINS
+          value: ""
+        ports:
+        - name: web
+          containerPort: 3000
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/grafana
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: dashboards-config
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: dashboard-validator
+          mountPath: /var/lib/grafana/dashboards
+        resources:
+          {{- toYaml .Values.monitoring.grafana.resources | nindent 10 }}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: grafana-data
+      - name: datasources
+        configMap:
+          name: grafana-datasources
+      - name: dashboards-config
+        configMap:
+          name: grafana-dashboards-config
+      - name: dashboard-validator
+        configMap:
+          name: grafana-dashboard-validator
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.grafana.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: {{ .Values.global.namespace.monitoring }}
+  labels:
+    {{- include "ethereum-validator.labels" . | nindent 4 }}
+    component: monitoring
+spec:
+  type: {{ .Values.monitoring.grafana.service.type }}
+  ports:
+  - name: web
+    port: {{ .Values.monitoring.grafana.service.port }}
+    targetPort: web
+    {{- if eq .Values.monitoring.grafana.service.type "NodePort" }}
+    nodePort: {{ .Values.monitoring.grafana.service.nodePort }}
+    {{- end }}
+  selector:
+    {{- include "ethereum-validator.selectorLabels" . | nindent 4 }}
+    component: monitoring
+    app: grafana
+{{- end }}
