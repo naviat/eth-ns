@@ -8,18 +8,22 @@ nodes:
   # Control plane node
   - role: control-plane
     kubeadmConfigPatches:
-    - |
-      kind: InitConfiguration
-      nodeRegistration:
-        kubeletExtraArgs:
-          node-labels: "node-role=control-plane"
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "node-role=control-plane"
     # Port mappings for ingress (HTTP/HTTPS)
     extraPortMappings:
       - containerPort: 80
-        hostPort: 80
+        hostPort: 30080
         protocol: TCP
       - containerPort: 443
-        hostPort: 443
+        hostPort: 30443
+        protocol: TCP
+      # Grafana NodePort
+      - containerPort: 30000
+        hostPort: 30000
         protocol: TCP
     extraMounts:
       # Mount host directory for PersistentVolumes (1TB LVM volume)
@@ -29,11 +33,11 @@ nodes:
   # Worker node 1 (for sentries)
   - role: worker
     kubeadmConfigPatches:
-    - |
-      kind: JoinConfiguration
-      nodeRegistration:
-        kubeletExtraArgs:
-          node-labels: "node-role=worker,validator-type=sentry"
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "node-role=worker,validator-type=sentry"
     extraMounts:
       - hostPath: /var/lib/docker/volumes/kind-validator
         containerPath: /var/local-path-provisioner
@@ -41,11 +45,11 @@ nodes:
   # Worker node 2 (for validator)
   - role: worker
     kubeadmConfigPatches:
-    - |
-      kind: JoinConfiguration
-      nodeRegistration:
-        kubeletExtraArgs:
-          node-labels: "node-role=worker,validator-type=validator"
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "node-role=worker,validator-type=validator"
     extraMounts:
       - hostPath: /var/lib/docker/volumes/kind-validator
         containerPath: /var/local-path-provisioner
@@ -65,12 +69,12 @@ featureGates:
 
 # Runtime config
 kubeadmConfigPatches:
-- |
-  kind: ClusterConfiguration
-  apiServer:
-    extraArgs:
-      enable-admission-plugins: NodeRestriction,PodSecurityPolicy
-  controllerManager:
-    extraArgs:
-      # Enable TTL for finished jobs
-      feature-gates: TTLAfterFinished=true
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        enable-admission-plugins: NodeRestriction
+    controllerManager:
+      extraArgs:
+        # Enable TTL for finished jobs
+        feature-gates: TTLAfterFinished=true

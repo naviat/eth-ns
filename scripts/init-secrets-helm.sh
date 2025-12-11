@@ -8,7 +8,7 @@ YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-SECRETS_DIR="$(dirname "$0")/../secrets"
+SECRETS_DIR="$(cd "$(dirname "$0")/.." && pwd)/secrets"
 
 echo -e "${BLUE}=== Initializing Secrets for Helm Deployment ===${NC}\n"
 
@@ -68,7 +68,7 @@ else
     # Create validator keys using the deposit CLI
     echo -e "${YELLOW}Generating validator keys...${NC}"
     docker run --rm -it \
-        -v "$PWD/$SECRETS_DIR/validator-keys:/app/validator_keys" \
+        -v "$SECRETS_DIR/validator-keys:/app/validator_keys" \
         ghcr.io/ethstaker/ethstaker-deposit-cli:latest \
         existing-mnemonic \
         --num_validators=1 \

@@ -66,7 +66,7 @@ flowchart TB
   %% Validator CC to execution LB
   VCC --> LB
 
-  %% VC uses local CC
+  %% VC uses local CC + Sentry CC
   VCC --- VC
 ```
 

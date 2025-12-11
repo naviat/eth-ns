@@ -8,8 +8,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-CHART_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/ethereum-validator" && pwd)"
-SECRETS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/secrets"
+CHART_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../helm/ethereum-validator" && pwd)"
+SECRETS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/secrets"
 RELEASE_NAME="ethereum-validator"
 NAMESPACE="validators"
 
