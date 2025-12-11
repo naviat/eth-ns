@@ -74,7 +74,3 @@ kubeadmConfigPatches:
     apiServer:
       extraArgs:
         enable-admission-plugins: NodeRestriction
-    controllerManager:
-      extraArgs:
-        # Enable TTL for finished jobs
-        feature-gates: TTLAfterFinished=true

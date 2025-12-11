@@ -22,7 +22,7 @@ if [ -f "$SECRETS_DIR/jwt.hex" ]; then
     echo -e "${YELLOW}jwt.hex already exists, skipping${NC}"
 else
     openssl rand -hex 32 > "$SECRETS_DIR/jwt.hex"
-    chmod 600 "$SECRETS_DIR/jwt.hex"
+    chmod 644 "$SECRETS_DIR/jwt.hex"
     echo -e "${GREEN}✓ Generated jwt.hex${NC}"
 fi
 
@@ -33,7 +33,7 @@ if [ -f "$SECRETS_DIR/validator-keys/password.txt" ]; then
 else
     # Generate a strong random password
     openssl rand -base64 32 > "$SECRETS_DIR/validator-keys/password.txt"
-    chmod 600 "$SECRETS_DIR/validator-keys/password.txt"
+    chmod 644 "$SECRETS_DIR/validator-keys/password.txt"
     echo -e "${GREEN}✓ Generated password.txt${NC}"
 fi
 
@@ -61,7 +61,7 @@ else
 
     # Save mnemonic
     echo "$MNEMONIC" > "$SECRETS_DIR/mnemonic.txt"
-    chmod 600 "$SECRETS_DIR/mnemonic.txt"
+    chmod 644 "$SECRETS_DIR/mnemonic.txt"
 
     PASSWORD=$(cat "$SECRETS_DIR/validator-keys/password.txt")
 
@@ -100,9 +100,9 @@ else
 fi
 
 # Set proper permissions
-chmod 700 "$SECRETS_DIR"
-chmod 700 "$SECRETS_DIR/validator-keys" 2>/dev/null || true
-find "$SECRETS_DIR" -type f -exec chmod 600 {} \; 2>/dev/null || true
+chmod 755 "$SECRETS_DIR"
+chmod 755 "$SECRETS_DIR/validator-keys" 2>/dev/null || true
+find "$SECRETS_DIR" -type f -exec chmod 644 {} \; 2>/dev/null || true
 
 echo -e "\n${GREEN}=== Secrets Initialization Complete ===${NC}"
 echo -e "${BLUE}Generated:${NC}"
