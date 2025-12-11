@@ -60,12 +60,16 @@ spec:
       port: 9000
 
   egress:
-  # Allow DNS resolution
+  # Allow DNS resolution (kube-dns/coredns in kube-system namespace)
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: kube-system
+          name: kube-system
     ports:
+    - protocol: UDP
+      port: 53
+  # Fallback DNS rule (in case namespace labels are different)
+  - ports:
     - protocol: UDP
       port: 53
 
@@ -168,12 +172,16 @@ spec:
       port: 9000
 
   egress:
-  # Allow DNS resolution
+  # Allow DNS resolution (kube-dns/coredns in kube-system namespace)
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: kube-system
+          name: kube-system
     ports:
+    - protocol: UDP
+      port: 53
+  # Fallback DNS rule (in case namespace labels are different)
+  - ports:
     - protocol: UDP
       port: 53
 
@@ -235,7 +243,7 @@ spec:
   - Egress
 
   ingress:
-  # Only allow Prometheus metrics scraping
+  # Allow Prometheus metrics scraping
   - from:
     - podSelector:
         matchLabels:
@@ -246,30 +254,63 @@ spec:
     - protocol: TCP
       port: {{ .Values.validator.validatorClient.config.metricsPort }}
 
+  # Allow validator client to connect to validator consensus beacon node (same pod communication)
+  - from:
+    - podSelector:
+        matchLabels:
+          component: validator
+          client: validator
+    ports:
+    - protocol: TCP
+      port: {{ .Values.validator.consensus.config.httpPort }}
+
+  # Allow validator consensus to accept connections from validator client container (same pod)
+  - from:
+    - podSelector:
+        matchLabels:
+          component: validator
+    ports:
+    - protocol: TCP
+      port: {{ .Values.validator.consensus.config.httpPort }}
+
   egress:
-  # Allow DNS resolution
+  # Allow DNS resolution (kube-dns/coredns in kube-system namespace)
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: kube-system
+          name: kube-system
     ports:
     - protocol: UDP
       port: 53
+  # Fallback DNS rule (in case namespace labels are different)
+  - ports:
+    - protocol: UDP
+      port: 53
 
-  # Allow connection to sentry execution pods (via execution-lb)
+  # Allow validator consensus to connect to sentry execution pods (via execution-lb service)
   - to:
     - podSelector:
         matchLabels:
+          component: sentry1
           client: execution
     ports:
     - protocol: TCP
       port: {{ .Values.sentry1.execution.config.enginePort }}
+  - to:
+    - podSelector:
+        matchLabels:
+          component: sentry2
+          client: execution
+    ports:
+    - protocol: TCP
+      port: {{ .Values.sentry2.execution.config.enginePort }}
 
-  # Allow checkpoint sync (HTTPS)
+  # Allow checkpoint sync (HTTPS) - needed for initial sync only
   - ports:
     - protocol: TCP
       port: 443
-  # Allow validator client to connect to sentry1 consensus beacon node (redundancy)
+
+  # Allow validator client to connect to sentry1 consensus beacon node
   - to:
     - podSelector:
         matchLabels:
@@ -279,7 +320,7 @@ spec:
     - protocol: TCP
       port: {{ .Values.sentry1.consensus.config.httpPort }}
 
-  # Allow validator client to connect to sentry2 consensus beacon node (redundancy)
+  # Allow validator client to connect to sentry2 consensus beacon node
   - to:
     - podSelector:
         matchLabels:
@@ -288,6 +329,16 @@ spec:
     ports:
     - protocol: TCP
       port: {{ .Values.sentry2.consensus.config.httpPort }}
+
+  # Allow validator consensus to connect to own service (internal pod-to-pod)
+  - to:
+    - podSelector:
+        matchLabels:
+          component: validator
+          client: consensus
+    ports:
+    - protocol: TCP
+      port: {{ .Values.validator.consensus.config.httpPort }}
 ---
 # =============================================================================
 # MEV-BOOST NETWORK POLICY
@@ -318,12 +369,16 @@ spec:
       port: {{ .Values.mevBoost.port }}
 
   egress:
-  # Allow DNS
+  # Allow DNS resolution
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: kube-system
+          name: kube-system
     ports:
+    - protocol: UDP
+      port: 53
+  # Fallback DNS rule
+  - ports:
     - protocol: UDP
       port: 53
 
@@ -362,18 +417,24 @@ spec:
       port: 9090
 
   egress:
-  # Allow DNS
+  # Allow DNS resolution
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: kube-system
+          name: kube-system
     ports:
     - protocol: UDP
       port: 53
+  # Fallback DNS rule
+  - ports:
+    - protocol: UDP
+      port: 53
 
-  # Allow scraping all pods
+  # Allow scraping all pods in the same namespace
   - to:
     - podSelector: {}
+    ports:
+    - protocol: TCP
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -395,21 +456,33 @@ spec:
   - {}
 
   egress:
-  # Allow DNS
+  # Allow DNS resolution
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: kube-system
+          name: kube-system
     ports:
     - protocol: UDP
       port: 53
+  # Fallback DNS rule
+  - ports:
+    - protocol: UDP
+      port: 53
 
-  # Allow Prometheus (cross-namespace)
+  # Allow Prometheus in validators namespace (Grafana is in monitoring namespace)
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: {{ .Values.global.namespace.validators }}
+          name: {{ .Values.global.namespace.validators }}
       podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9090
+  # Fallback: Allow Prometheus in same namespace if namespace label doesn't work
+  - to:
+    - podSelector:
         matchLabels:
           app: prometheus
     ports:
