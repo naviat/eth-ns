@@ -28,7 +28,7 @@ nodes:
     extraMounts:
       # Mount host directory for PersistentVolumes (1TB LVM volume)
       - hostPath: /mnt/kind-storage/validator-data
-        containerPath: /var/local-path-provisioner
+        containerPath: /opt/local-path-provisioner
 
   # Worker node 1 (for sentries)
   - role: worker
@@ -39,8 +39,8 @@ nodes:
           kubeletExtraArgs:
             node-labels: "node-role=worker,validator-type=sentry"
     extraMounts:
-      - hostPath: /var/lib/docker/volumes/kind-validator
-        containerPath: /var/local-path-provisioner
+      - hostPath: /mnt/kind-storage/validator-data
+        containerPath: /opt/local-path-provisioner
 
   # Worker node 2 (for validator)
   - role: worker
@@ -51,8 +51,8 @@ nodes:
           kubeletExtraArgs:
             node-labels: "node-role=worker,validator-type=validator"
     extraMounts:
-      - hostPath: /var/lib/docker/volumes/kind-validator
-        containerPath: /var/local-path-provisioner
+      - hostPath: /mnt/kind-storage/validator-data
+        containerPath: /opt/local-path-provisioner
 
 # Networking configuration
 networking:
