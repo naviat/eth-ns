@@ -4,6 +4,7 @@ metadata:
   name: {{ .Values.global.namespace.validators }}
   labels:
     {{- include "ethereum-validator.labels" . | nindent 4 }}
+    name: {{ .Values.global.namespace.validators }}
     purpose: validators
 ---
 apiVersion: v1
@@ -12,4 +13,5 @@ metadata:
   name: {{ .Values.global.namespace.monitoring }}
   labels:
     {{- include "ethereum-validator.labels" . | nindent 4 }}
+    name: {{ .Values.global.namespace.monitoring }}
     purpose: monitoring
