@@ -40,36 +40,33 @@ kubectl port-forward -n validators svc/grafana 3000:3000
 
 ```mermaid
 flowchart TB
-  %% Internet
   Internet["INTERNET (P2P)"]
 
- Public-facing sentry layer
-  subgraph SENTRY["Sentry Layer (public-facing)"]
-    direction LR
+  %% Public sentry layer
+  subgraph SentryLayer["Sentry layer (public)"]
     S1["Sentry 1: Nethermind EC + Lighthouse CC"]
     S2["Sentry 2: Nethermind EC + Lighthouse CC"]
   end
 
   %% Private validator layer
-  subgraph PRIVATE["PRIVATE NETWORK (NetworkPolicy: NO INTERNET)"]
-    direction TB
+  subgraph PrivateNet["PRIVATE NETWORK (NetworkPolicy: NO INTERNET)"]
     LB["execution-lb - K8s Service (sessionAffinity)"]
-    VCC["Validator Lighthouse CC"]
-    VC["Validator Lighthouse VC + Validator Keys + Slashing DB"]
+    VCC["Validator: Lighthouse CC"]
+    VC["Validator: Lighthouse VC + Validator Keys + Slashing DB"]
   end
 
-  %% Internet ↔ Sentries: P2P
-  Internet <-- "P2P" --> S1
-  Internet <-- "P2P" --> S2
+  %% Internet P2P
+  Internet --> S1
+  Internet --> S2
 
-  %% Sentries → execution LB inside cluster
+  %% Sentries to execution LB
   S1 --> LB
   S2 --> LB
 
-  %% Validator CC → execution LB (Engine API)
+  %% Validator CC to execution LB
   VCC --> LB
 
-  %% VC uses local CC + keys + slashing DB
+  %% VC uses local CC
   VCC --- VC
 ```
 

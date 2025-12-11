@@ -160,7 +160,7 @@ spec:
           - validator_client
           - --network={{ .Values.global.network }}
           - --datadir=/data
-          - --beacon-nodes=http://validator-consensus:{{ .Values.validator.consensus.config.httpPort }}
+          - --beacon-nodes=http://validator-consensus:{{ .Values.validator.consensus.config.httpPort }},http://sentry1-consencus:{{ .Values.sentry1.consensus.config.httpPort }},http://sentry2-consencus:{{ .Values.sentry2.consensus.config.httpPort }}
           - --metrics
           - --metrics-address=0.0.0.0
           - --metrics-port={{ .Values.validator.validatorClient.config.metricsPort }}
