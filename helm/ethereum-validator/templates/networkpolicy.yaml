@@ -1,146 +1,9 @@
 {{- if .Values.networkPolicy.enabled }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: sentry1-policy-min
-  namespace: {{ .Values.global.namespace.validators }}
-  labels:
-    {{- include "ethereum-validator.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      component: sentry1
-  policyTypes: ["Ingress","Egress"]
-
-  ingress:
-    # From validator pods to sentry1 (private paths: engine/jsonrpc + BN http)
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
-          podSelector:
-            matchLabels:
-              component: validator
-      ports:
-        - { protocol: TCP, port: 8551 } # engine
-        - { protocol: TCP, port: 8545 } # jsonrpc
-        - { protocol: TCP, port: 5052 } # BN http
-
-    # Public P2P ingress (sentry is public-facing layer)
-    - ports:
-        - { protocol: TCP, port: 30303 } # EC p2p
-        - { protocol: UDP, port: 30303 }
-        - { protocol: TCP, port: 9000 }  # CL p2p
-        - { protocol: UDP, port: 9000 }
-
-  egress:
-    # DNS to kube-system (CoreDNS in kind)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - { protocol: UDP, port: 53 }
-        - { protocol: TCP, port: 53 }
-
-    # P2P egress to internet
-    - ports:
-        - { protocol: TCP, port: 30303 }
-        - { protocol: UDP, port: 30303 }
-        - { protocol: TCP, port: 9000 }
-        - { protocol: UDP, port: 9000 }
-
-    # HTTPS outbound (checkpoint sync, relays, etc.)
-    - ports:
-        - { protocol: TCP, port: 443 }
-
-    # Allow sentry1-consensus -> sentry1-execution Engine API
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
-          podSelector:
-            matchLabels:
-              component: sentry1
-              client: execution
-      ports:
-        - { protocol: TCP, port: 8551 }
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: sentry2-policy-min
-  namespace: {{ .Values.global.namespace.validators }}
-  labels:
-    {{- include "ethereum-validator.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      component: sentry2
-  policyTypes: ["Ingress","Egress"]
-
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
-          podSelector:
-            matchLabels:
-              component: validator
-      ports:
-        - { protocol: TCP, port: 8551 }
-        - { protocol: TCP, port: 8545 }
-        - { protocol: TCP, port: 5052 }
-
-    - ports:
-        - { protocol: TCP, port: 30303 }
-        - { protocol: UDP, port: 30303 }
-        - { protocol: TCP, port: 9000 }
-        - { protocol: UDP, port: 9000 }
-
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - { protocol: UDP, port: 53 }
-        - { protocol: TCP, port: 53 }
-
-    - ports:
-        - { protocol: TCP, port: 30303 }
-        - { protocol: UDP, port: 30303 }
-        - { protocol: TCP, port: 9000 }
-        - { protocol: UDP, port: 9000 }
-
-    - ports:
-        - { protocol: TCP, port: 443 }
-
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
-          podSelector:
-            matchLabels:
-              component: sentry2
-              client: execution
-      ports:
-        - { protocol: TCP, port: 8551 }
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: validator-policy-min
+  name: validator-isolation
   namespace: {{ .Values.global.namespace.validators }}
   labels:
     {{- include "ethereum-validator.labels" . | nindent 4 }}
@@ -151,66 +14,48 @@ spec:
   policyTypes: ["Ingress","Egress"]
 
   ingress:
-    # Allow Prometheus scrape from monitoring namespace only
+    # Allow Prometheus scrape from monitoring namespace
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
           podSelector:
-            # TODO: adjust to Prometheus labels if needed
             matchLabels:
               app: prometheus
       ports:
-        - { protocol: TCP, port: 5054 } # consensus metrics
-        - { protocol: TCP, port: 5064 } # vc metrics
+        - { protocol: TCP, port: 5054 } # validator-consensus metrics
+        - { protocol: TCP, port: 5064 } # validator-client metrics
 
-    # Allow BN HTTP inside namespace (optional; used if scrape/need internal access)
+    # Optional: allow in-namespace access to validator BN HTTP (debug)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
       ports:
-        - { protocol: TCP, port: 5052 }
+        - { protocol: TCP, port: 5052 } # validator-consensus HTTP
 
   egress:
-    # DNS
+    # DNS to CoreDNS in kube-system
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 
-    # Validator -> BOTH sentry execution clients (engine/jsonrpc)
+    # Validator BN -> Execution Engine (via Service execution-lb)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
           podSelector:
             matchLabels:
-              component: sentry1
               client: execution
       ports:
         - { protocol: TCP, port: 8551 }
-        - { protocol: TCP, port: 8545 }
 
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
-          podSelector:
-            matchLabels:
-              component: sentry2
-              client: execution
-      ports:
-        - { protocol: TCP, port: 8551 }
-        - { protocol: TCP, port: 8545 }
-
-    # VC -> BOTH sentry beacon nodes (HA)
+    # Validator VC -> Sentry beacon nodes (both)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -232,17 +77,4 @@ spec:
               client: consensus
       ports:
         - { protocol: TCP, port: 5052 }
-
-    # Optional: allow validator pods to talk to validator-consensus (if VC uses it too)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
-          podSelector:
-            matchLabels:
-              component: validator
-              client: consensus
-      ports:
-        - { protocol: TCP, port: 5052 }
-
   {{- end }}

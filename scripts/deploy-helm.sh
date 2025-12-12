@@ -111,9 +111,23 @@ if ! kubectl get namespace ${NAMESPACE} &> /dev/null; then
     echo -e "${GREEN}✓ Namespace created${NC}"
 fi
 
-# Create secret for JWT with Helm labels
-echo -e "${YELLOW}Creating JWT secret with Helm labels...${NC}"
-cat <<EOF | kubectl apply -f -
+# Create or update JWT secret with Helm labels
+echo -e "${YELLOW}Creating/Updating JWT secret with Helm labels...${NC}"
+
+# Check if secret exists
+if kubectl get secret ${RELEASE_NAME}-jwt -n ${NAMESPACE} &> /dev/null; then
+    echo -e "${YELLOW}  Secret exists, adding Helm labels...${NC}"
+    # Add Helm labels to existing secret (doesn't trigger pod restart)
+    kubectl label secret ${RELEASE_NAME}-jwt -n ${NAMESPACE} \
+        app.kubernetes.io/managed-by=Helm --overwrite
+    kubectl annotate secret ${RELEASE_NAME}-jwt -n ${NAMESPACE} \
+        meta.helm.sh/release-name=${RELEASE_NAME} \
+        meta.helm.sh/release-namespace=${NAMESPACE} --overwrite
+    echo -e "${GREEN}✓ JWT secret labels updated${NC}"
+else
+    echo -e "${YELLOW}  Secret doesn't exist, creating...${NC}"
+    # Create fresh secret
+    cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
@@ -128,25 +142,39 @@ type: Opaque
 data:
   jwt.hex: $(cat ${SECRETS_DIR}/jwt.hex | base64 | tr -d '\n')
 EOF
-echo -e "${GREEN}✓ JWT secret created${NC}"
+    echo -e "${GREEN}✓ JWT secret created${NC}"
+fi
 
-# Create secret for validator keys with Helm labels
+# Create or update validator keys secret with Helm labels
 if [ -d "${SECRETS_DIR}/validator-keys" ] && [ "$(ls -A ${SECRETS_DIR}/validator-keys 2>/dev/null)" ]; then
-    echo -e "${YELLOW}Creating validator-keys secret with Helm labels...${NC}"
+    echo -e "${YELLOW}Creating/Updating validator-keys secret with Helm labels...${NC}"
 
-    # Build base64 encoded data entries
-    DATA_ENTRIES=""
-    for file in ${SECRETS_DIR}/validator-keys/*; do
-        if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            encoded=$(cat "$file" | base64 | tr -d '\n')
-            DATA_ENTRIES="${DATA_ENTRIES}  ${filename}: ${encoded}\n"
-            echo "  Adding file: ${filename}"
-        fi
-    done
+    # Check if secret exists
+    if kubectl get secret ${RELEASE_NAME}-validator-keys -n ${NAMESPACE} &> /dev/null; then
+        echo -e "${YELLOW}  Secret exists, adding Helm labels...${NC}"
+        # Add Helm labels to existing secret (doesn't trigger pod restart)
+        kubectl label secret ${RELEASE_NAME}-validator-keys -n ${NAMESPACE} \
+            app.kubernetes.io/managed-by=Helm --overwrite
+        kubectl annotate secret ${RELEASE_NAME}-validator-keys -n ${NAMESPACE} \
+            meta.helm.sh/release-name=${RELEASE_NAME} \
+            meta.helm.sh/release-namespace=${NAMESPACE} --overwrite
+        echo -e "${GREEN}✓ Validator keys secret labels updated${NC}"
+    else
+        echo -e "${YELLOW}  Secret doesn't exist, creating...${NC}"
 
-    # Create secret with Helm labels
-    cat <<EOF | kubectl apply -f -
+        # Build base64 encoded data entries
+        DATA_ENTRIES=""
+        for file in ${SECRETS_DIR}/validator-keys/*; do
+            if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                encoded=$(cat "$file" | base64 | tr -d '\n')
+                DATA_ENTRIES="${DATA_ENTRIES}  ${filename}: ${encoded}\n"
+                echo "  Adding file: ${filename}"
+            fi
+        done
+
+        # Create secret with Helm labels
+        cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
@@ -161,7 +189,8 @@ type: Opaque
 data:
 $(echo -e "${DATA_ENTRIES}")
 EOF
-    echo -e "${GREEN}✓ Validator keys secret created${NC}"
+        echo -e "${GREEN}✓ Validator keys secret created${NC}"
+    fi
 else
     echo -e "${RED}❌ Validator keys directory not found or empty at ${SECRETS_DIR}/validator-keys${NC}"
     echo -e "${YELLOW}Run: make secrets-init${NC}"
