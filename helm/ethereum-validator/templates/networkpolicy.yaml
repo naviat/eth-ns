@@ -1,12 +1,8 @@
-{{- if .Values.networkPolicy.enabled }}
 ---
-# =============================================================================
-# SENTRY 1 NETWORK POLICY - Public nodes with controlled egress
-# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: sentry1-policy
+  name: sentry1-policy-min
   namespace: {{ .Values.global.namespace.validators }}
   labels:
     {{- include "ethereum-validator.labels" . | nindent 4 }}
@@ -15,137 +11,69 @@ spec:
     matchLabels:
       component: sentry1
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   ingress:
-  # Allow internal pod communication: consensus → execution (within same pod/service)
-  - from:
-    - podSelector:
-        matchLabels:
-          component: sentry1
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.enginePort }}  # 8551
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.jsonRpcPort }}  # 8545
+    - from:
+        - podSelector:
+            matchLabels:
+              component: validator
+      ports:
+        - protocol: TCP
+          port: 8551 # execution enginePort
+        - protocol: TCP
+          port: 8545 # execution jsonRpcPort
+        - protocol: TCP
+          port: 5052 # consensus httpPort
 
-  # Allow validator to access execution Engine API
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.enginePort }}  # 8551
-
-  # Allow validator to access execution JSON-RPC API
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.jsonRpcPort }}  # 8545
-
-  # Allow validator to access consensus HTTP API
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.consensus.config.httpPort }}  # 5052
-
-  # Allow Prometheus metrics scraping from monitoring namespace
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: {{ .Values.global.namespace.monitoring }}
-      podSelector:
-        matchLabels:
-          app: prometheus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.metricsPort }}  # 6060
-    - protocol: TCP
-      port: {{ .Values.sentry1.consensus.config.metricsPort }}  # 5054
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.jsonRpcPort }}  # 8545 (may have metrics endpoint)
-    - protocol: TCP
-      port: {{ .Values.sentry1.consensus.config.httpPort }}  # 5052 (may have metrics endpoint)
-
-  # Allow P2P ingress (for peer connections)
-  - ports:
-    - protocol: TCP
-      port: 30303  # Execution P2P
-    - protocol: UDP
-      port: 30303
-    - protocol: TCP
-      port: 9000   # Consensus P2P
-    - protocol: UDP
-      port: 9000
+    - ports:
+        - protocol: TCP
+          port: 30303 # EC P2P
+        - protocol: UDP
+          port: 30303
+        - protocol: TCP
+          port: 9000 # CC P2P
+        - protocol: UDP
+          port: 9000
 
   egress:
-  # Allow DNS resolution (kube-dns/coredns in kube-system namespace)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-  # Fallback DNS rule (in case namespace labels are different)
-  - ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
 
-  # Allow Ethereum execution P2P (internet)
-  - ports:
-    - protocol: TCP
-      port: 30303
-    - protocol: UDP
-      port: 30303
+    # P2P ra internet
+    - ports:
+        - protocol: TCP
+          port: 30303
+        - protocol: UDP
+          port: 30303
+    - ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: UDP
+          port: 9000
 
-  # Allow Ethereum consensus P2P (internet)
-  - ports:
-    - protocol: TCP
-      port: 9000
-    - protocol: UDP
-      port: 9000
+    # HTTPS (checkpoint sync, relays,...)
+    - ports:
+        - protocol: TCP
+          port: 443
 
-  # Allow HTTPS for checkpoint sync and MEV relays
-  - ports:
-    - protocol: TCP
-      port: 443
-
-  # Allow MEV-Boost internal connection
-  - to:
-    - podSelector:
-        matchLabels:
-          app: mev-boost
-    ports:
-    - protocol: TCP
-      port: {{ .Values.mevBoost.port }}
-
-  # Allow connection to own execution client (consensus → execution)
-  - to:
-    - podSelector:
-        matchLabels:
-          component: sentry1
-          client: execution
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.enginePort }}
+    - to:
+        - podSelector:
+            matchLabels:
+              component: sentry1
+              client: execution
+      ports:
+        - protocol: TCP
+          port: 8551
 
 ---
-# =============================================================================
-# SENTRY 2 NETWORK POLICY
-# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: sentry2-policy
+  name: sentry2-policy-min
   namespace: {{ .Values.global.namespace.validators }}
   labels:
     {{- include "ethereum-validator.labels" . | nindent 4 }}
@@ -154,137 +82,66 @@ spec:
     matchLabels:
       component: sentry2
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   ingress:
-  # Allow internal pod communication: consensus → execution (within same pod/service)
-  - from:
-    - podSelector:
-        matchLabels:
-          component: sentry2
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.enginePort }}  # 8551
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.jsonRpcPort }}  # 8545
+    - from:
+        - podSelector:
+            matchLabels:
+              component: validator
+      ports:
+        - protocol: TCP
+          port: 8551
+        - protocol: TCP
+          port: 8545
+        - protocol: TCP
+          port: 5052
 
-  # Allow validator to access execution Engine API
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.enginePort }}  # 8551
-
-  # Allow validator to access execution JSON-RPC API
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.jsonRpcPort }}  # 8545
-
-  # Allow validator to access consensus HTTP API
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.consensus.config.httpPort }}  # 5052
-
-  # Allow Prometheus metrics scraping from monitoring namespace
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: {{ .Values.global.namespace.monitoring }}
-      podSelector:
-        matchLabels:
-          app: prometheus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.metricsPort }}  # 6060
-    - protocol: TCP
-      port: {{ .Values.sentry2.consensus.config.metricsPort }}  # 5054
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.jsonRpcPort }}  # 8545 (may have metrics endpoint)
-    - protocol: TCP
-      port: {{ .Values.sentry2.consensus.config.httpPort }}  # 5052 (may have metrics endpoint)
-
-  # Allow P2P ingress
-  - ports:
-    - protocol: TCP
-      port: 30303
-    - protocol: UDP
-      port: 30303
-    - protocol: TCP
-      port: 9000
-    - protocol: UDP
-      port: 9000
+    - ports:
+        - protocol: TCP
+          port: 30303
+        - protocol: UDP
+          port: 30303
+        - protocol: TCP
+          port: 9000
+        - protocol: UDP
+          port: 9000
 
   egress:
-  # Allow DNS resolution (kube-dns/coredns in kube-system namespace)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-  # Fallback DNS rule (in case namespace labels are different)
-  - ports:
-    - protocol: UDP
-      port: 53
+    - ports:
+        - protocol: UDP
+          port: 53
 
-  # Allow Ethereum execution P2P
-  - ports:
-    - protocol: TCP
-      port: 30303
-    - protocol: UDP
-      port: 30303
+    - ports:
+        - protocol: TCP
+          port: 30303
+        - protocol: UDP
+          port: 30303
+    - ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: UDP
+          port: 9000
 
-  # Allow Ethereum consensus P2P
-  - ports:
-    - protocol: TCP
-      port: 9000
-    - protocol: UDP
-      port: 9000
+    - ports:
+        - protocol: TCP
+          port: 443
 
-  # Allow HTTPS
-  - ports:
-    - protocol: TCP
-      port: 443
-
-  # Allow MEV-Boost
-  - to:
-    - podSelector:
-        matchLabels:
-          app: mev-boost
-    ports:
-    - protocol: TCP
-      port: {{ .Values.mevBoost.port }}
-
-  # Allow connection to own execution client
-  - to:
-    - podSelector:
-        matchLabels:
-          component: sentry2
-          client: execution
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.enginePort }}
+    - to:
+        - podSelector:
+            matchLabels:
+              component: sentry2
+              client: execution
+      ports:
+        - protocol: TCP
+          port: 8551
 
 ---
-# =============================================================================
-# VALIDATOR NETWORK POLICY - Maximum isolation
-# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: validator-policy
+  name: validator-policy-min
   namespace: {{ .Values.global.namespace.validators }}
   labels:
     {{- include "ethereum-validator.labels" . | nindent 4 }}
@@ -293,274 +150,76 @@ spec:
     matchLabels:
       component: validator
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   ingress:
-  # Allow Prometheus metrics scraping from monitoring namespace
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: {{ .Values.global.namespace.monitoring }}
-      podSelector:
-        matchLabels:
-          app: prometheus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.validator.consensus.config.metricsPort }}  # 5054
-    - protocol: TCP
-      port: {{ .Values.validator.validatorClient.config.metricsPort }}  # 5064
-    - protocol: TCP
-      port: {{ .Values.validator.consensus.config.httpPort }}  # 5052 (may have metrics endpoint)
+    - ports:
+        - protocol: TCP
+          port: 5054 # consensus metrics
+        - protocol: TCP
+          port: 5064 # vc metrics
+        - protocol: TCP
+          port: 5052 # consensus http
 
-  # Allow validator client to connect to validator consensus beacon node (same pod communication)
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-          client: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.validator.consensus.config.httpPort }}  # 5052
-
-  # Allow validator consensus to accept connections from validator client container (same pod)
-  - from:
-    - podSelector:
-        matchLabels:
-          component: validator
-    ports:
-    - protocol: TCP
-      port: {{ .Values.validator.consensus.config.httpPort }}  # 5052
+    - from:
+        - podSelector:
+            matchLabels:
+              component: validator
+      ports:
+        - protocol: TCP
+          port: 5052
 
   egress:
-  # Allow DNS resolution (kube-dns/coredns in kube-system namespace)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-  # Fallback DNS rule (in case namespace labels are different)
-  - ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
 
-  # Allow validator consensus to connect to sentry1 execution (both enginePort and jsonRpcPort)
-  - to:
-    - podSelector:
-        matchLabels:
-          component: sentry1
-          client: execution
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.enginePort }}  # 8551
-    - protocol: TCP
-      port: {{ .Values.sentry1.execution.config.jsonRpcPort }}  # 8545
+    - to:
+        - podSelector:
+            matchLabels:
+              component: sentry1
+              client: execution
+      ports:
+        - protocol: TCP
+          port: 8551
+        - protocol: TCP
+          port: 8545
 
-  # Allow validator consensus to connect to sentry2 execution (both enginePort and jsonRpcPort)
-  - to:
-    - podSelector:
-        matchLabels:
-          component: sentry2
-          client: execution
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.enginePort }}  # 8551
-    - protocol: TCP
-      port: {{ .Values.sentry2.execution.config.jsonRpcPort }}  # 8545
+    - to:
+        - podSelector:
+            matchLabels:
+              component: sentry2
+              client: execution
+      ports:
+        - protocol: TCP
+          port: 8551
+        - protocol: TCP
+          port: 8545
 
-  # Allow checkpoint sync (HTTPS) - needed for initial sync only
-  - ports:
-    - protocol: TCP
-      port: 443
+    - to:
+        - podSelector:
+            matchLabels:
+              component: sentry1
+              client: consensus
+      ports:
+        - protocol: TCP
+          port: 5052
+    - to:
+        - podSelector:
+            matchLabels:
+              component: sentry2
+              client: consensus
+      ports:
+        - protocol: TCP
+          port: 5052
 
-  # Allow validator client to connect to sentry1 consensus beacon node
-  - to:
-    - podSelector:
-        matchLabels:
-          component: sentry1
-          client: consensus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry1.consensus.config.httpPort }}  # 5052
-
-  # Allow validator client to connect to sentry2 consensus beacon node
-  - to:
-    - podSelector:
-        matchLabels:
-          component: sentry2
-          client: consensus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.sentry2.consensus.config.httpPort }}  # 5052
-
-  # Allow validator consensus to connect to own service (internal pod-to-pod)
-  - to:
-    - podSelector:
-        matchLabels:
-          component: validator
-          client: consensus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.validator.consensus.config.httpPort }}  # 5052
----
-# =============================================================================
-# MEV-BOOST NETWORK POLICY
-# =============================================================================
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: mev-boost-policy
-  namespace: {{ .Values.global.namespace.validators }}
-  labels:
-    {{- include "ethereum-validator.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app: mev-boost
-  policyTypes:
-  - Ingress
-  - Egress
-
-  ingress:
-  # Allow sentry consensus nodes
-  - from:
-    - podSelector:
-        matchLabels:
-          client: consensus
-    ports:
-    - protocol: TCP
-      port: {{ .Values.mevBoost.port }}
-
-  egress:
-  # Allow DNS resolution
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-  # Fallback DNS rule
-  - ports:
-    - protocol: UDP
-      port: 53
-
-  # Allow HTTPS to MEV relays
-  - ports:
-    - protocol: TCP
-      port: 443
-
----
-# =============================================================================
-# MONITORING NETWORK POLICIES
-# =============================================================================
-# Prometheus NetworkPolicy (in monitoring namespace)
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: prometheus-policy
-  namespace: {{ .Values.global.namespace.monitoring }}
-  labels:
-    {{- include "ethereum-validator.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app: prometheus
-  policyTypes:
-  - Ingress
-  - Egress
-
-  ingress:
-  # Allow Grafana (same namespace)
-  - from:
-    - podSelector:
-        matchLabels:
-          app: grafana
-    ports:
-    - protocol: TCP
-      port: 9090
-
-  egress:
-  # Allow DNS resolution
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-  # Fallback DNS rule
-  - ports:
-    - protocol: UDP
-      port: 53
-
-  # Allow scraping pods in validators namespace (cross-namespace scraping)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: {{ .Values.global.namespace.validators }}
-      podSelector: {}
-    ports:
-    - protocol: TCP
-
-  # Fallback: Allow scraping validators namespace (if namespace labels don't work)
-  - to:
-    - podSelector: {}
-    ports:
-    - protocol: TCP
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: grafana-policy
-  namespace: {{ .Values.global.namespace.monitoring }}
-  labels:
-    {{- include "ethereum-validator.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app: grafana
-  policyTypes:
-  - Ingress
-  - Egress
-
-  ingress:
-  # Allow from anywhere (dashboard access via browser or ingress)
-  - {}
-
-  egress:
-  # Allow DNS resolution
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-  # Fallback DNS rule
-  - ports:
-    - protocol: UDP
-      port: 53
-
-  # Allow Prometheus in validators namespace (Grafana is in monitoring namespace)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: {{ .Values.global.namespace.validators }}
-      podSelector:
-        matchLabels:
-          app: prometheus
-    ports:
-    - protocol: TCP
-      port: 9090
-  # Fallback: Allow Prometheus in same namespace if namespace label doesn't work
-  - to:
-    - podSelector:
-        matchLabels:
-          app: prometheus
-    ports:
-    - protocol: TCP
-      port: 9090
-{{- end }}
+    - to:
+        - podSelector:
+            matchLabels:
+              component: validator
+              client: consensus
+      ports:
+        - protocol: TCP
+          port: 5052
