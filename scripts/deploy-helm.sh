@@ -164,7 +164,7 @@ EOF
     echo -e "${GREEN}✓ Validator keys secret created${NC}"
 else
     echo -e "${RED}❌ Validator keys directory not found or empty at ${SECRETS_DIR}/validator-keys${NC}"
-    echo -e "${YELLOW}Run: make secrets-init-helm${NC}"
+    echo -e "${YELLOW}Run: make secrets-init${NC}"
     exit 1
 fi
 
