@@ -9,8 +9,19 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 SECRETS_DIR="$(cd "$(dirname "$0")/.." && pwd)/secrets"
+K8S_NAMESPACE="validators"
+VALIDATOR_SECRET_NAME="ethereum-validator-validator-keys"
 
 echo -e "${BLUE}=== Initializing Secrets for Helm Deployment ===${NC}\n"
+
+echo -e "${BLUE}Checking Kubernetes namespace 'validators'...${NC}"
+if kubectl get ns validators >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Namespace 'validators' already exists${NC}"
+else
+    echo -e "${YELLOW}Namespace 'validators' not found — creating...${NC}"
+    kubectl create namespace validators
+    echo -e "${GREEN}✓ Created namespace validators${NC}"
+fi
 
 # Create directories
 mkdir -p "$SECRETS_DIR/validator-keys"
@@ -40,10 +51,10 @@ fi
 # Generate test validator keys using staking-deposit-cli
 echo -e "\n${BLUE}Generating test validator keys...${NC}"
 
-if [ -f "$SECRETS_DIR/validator-keys/keystore-m_12381_3600_0_0_0.json" ]; then
+if ls "$SECRETS_DIR"/validator-keys/keystore-m_12381_3600_0_0_0*.json >/dev/null 2>&1; then
     echo -e "${YELLOW}Validator keys already exist, skipping${NC}"
 else
-    echo -e "${YELLOW}Using staking-deposit-cli to generate test keys...${NC}"
+    echo -e "${YELLOW}Using ethstaker-deposit-cli to generate test keys...${NC}"
 
     # Check if Docker is running
     if ! docker info > /dev/null 2>&1; then
@@ -82,7 +93,6 @@ else
     echo -e "${YELLOW}⚠️  Mnemonic: test test test test test test test test test test test junk${NC}"
 
     # Fix ownership - files created by Docker are owned by root
-    # Change ownership to current user
     echo -e "${YELLOW}Fixing file ownership...${NC}"
     if [ "$(id -u)" -eq 0 ]; then
         # Running as root, keep root ownership but fix permissions
@@ -90,7 +100,7 @@ else
     else
         # Running as regular user, use sudo to fix ownership
         if command -v sudo &> /dev/null; then
-            sudo chown -R $(id -u):$(id -g) "$SECRETS_DIR/validator-keys"
+            sudo chown -R "$(id -u)":"$(id -g)" "$SECRETS_DIR/validator-keys"
             echo -e "${GREEN}✓ Fixed ownership to $(whoami)${NC}"
         else
             echo -e "${YELLOW}⚠️  Warning: Cannot fix ownership (no sudo). Files owned by root.${NC}"
@@ -104,20 +114,45 @@ chmod 755 "$SECRETS_DIR"
 chmod 755 "$SECRETS_DIR/validator-keys" 2>/dev/null || true
 find "$SECRETS_DIR" -type f -exec chmod 644 {} \; 2>/dev/null || true
 
+# Sync validator keys into Kubernetes Secret (for Helm)
+echo -e "\n${BLUE}Syncing validator keys into Kubernetes Secret...${NC}"
+
+if ! command -v kubectl >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  kubectl not found in PATH. Skipping Kubernetes secret creation.${NC}"
+    echo -e "${YELLOW}   To create it manually later, run:${NC}"
+    echo "     kubectl create ns ${K8S_NAMESPACE} 2>/dev/null || true"
+    echo "     kubectl delete secret -n ${K8S_NAMESPACE} ${VALIDATOR_SECRET_NAME} 2>/dev/null || true"
+    echo "     kubectl create secret generic ${VALIDATOR_SECRET_NAME} \\"
+    echo "       -n ${K8S_NAMESPACE} --from-file=${SECRETS_DIR}/validator-keys/"
+else
+    # Ensure namespace exists
+    kubectl create ns "${K8S_NAMESPACE}" 2>/dev/null || true
+
+    # Recreate secret from local files (idempotent)
+    kubectl delete secret -n "${K8S_NAMESPACE}" "${VALIDATOR_SECRET_NAME}" 2>/dev/null || true
+    kubectl create secret generic "${VALIDATOR_SECRET_NAME}" \
+        -n "${K8S_NAMESPACE}" \
+        --from-file="${SECRETS_DIR}/validator-keys/" >/dev/null
+
+    echo -e "${GREEN}✓ Created/updated secret ${VALIDATOR_SECRET_NAME} in namespace ${K8S_NAMESPACE}${NC}"
+fi
+
 echo -e "\n${GREEN}=== Secrets Initialization Complete ===${NC}"
 echo -e "${BLUE}Generated:${NC}"
-echo "  • JWT secret: secrets/jwt.hex"
+echo "  • JWT secret file: secrets/jwt.hex"
 echo "  • Validator password: secrets/validator-keys/password.txt"
 echo "  • Validator keystore: secrets/validator-keys/keystore-*.json"
 echo "  • Deposit data: secrets/validator-keys/deposit_data-*.json"
 echo "  • Mnemonic: secrets/mnemonic.txt"
+echo "  • K8s Secret: ${K8S_NAMESPACE}/${VALIDATOR_SECRET_NAME}"
 echo ""
 echo -e "${YELLOW}⚠️  IMPORTANT:${NC}"
 echo "  • These secrets are gitignored and will NOT be committed"
 echo "  • Never share validator keys, mnemonic, or JWT secrets!"
-echo "  • For production, use a secure mnemonic generator"
+echo "  • For production, use a secure mnemonic generator and unique mnemonics"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
-echo "  1. Deploy with Helm: cd k8s/helm && ./deploy-helm.sh"
-echo "  2. Or deploy with raw manifests: cd k8s && ./deploy-kind.sh"
+echo "  1. Create Kind cluster: kind create cluster --name validator --config kind-config.yaml"
+echo "  2. Deploy Helm chart:   ./scripts/deploy-helm.sh"
+echo "  3. Check pods:          kubectl get pods -n ${K8S_NAMESPACE}"
 echo ""
