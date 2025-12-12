@@ -1,3 +1,5 @@
+{{- if .Values.networkPolicy.enabled }}
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -10,64 +12,64 @@ spec:
   podSelector:
     matchLabels:
       component: sentry1
-  policyTypes:
-    - Ingress
-    - Egress
+  policyTypes: ["Ingress","Egress"]
 
   ingress:
+    # From validator pods to sentry1 (private paths: engine/jsonrpc + BN http)
     - from:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: validator
       ports:
-        - protocol: TCP
-          port: 8551 # execution enginePort
-        - protocol: TCP
-          port: 8545 # execution jsonRpcPort
-        - protocol: TCP
-          port: 5052 # consensus httpPort
+        - { protocol: TCP, port: 8551 } # engine
+        - { protocol: TCP, port: 8545 } # jsonrpc
+        - { protocol: TCP, port: 5052 } # BN http
 
+    # Public P2P ingress (sentry is public-facing layer)
     - ports:
-        - protocol: TCP
-          port: 30303 # EC P2P
-        - protocol: UDP
-          port: 30303
-        - protocol: TCP
-          port: 9000 # CC P2P
-        - protocol: UDP
-          port: 9000
+        - { protocol: TCP, port: 30303 } # EC p2p
+        - { protocol: UDP, port: 30303 }
+        - { protocol: TCP, port: 9000 }  # CL p2p
+        - { protocol: UDP, port: 9000 }
 
   egress:
-    # DNS
-    - ports:
-        - protocol: UDP
-          port: 53
-
-    # P2P ra internet
-    - ports:
-        - protocol: TCP
-          port: 30303
-        - protocol: UDP
-          port: 30303
-    - ports:
-        - protocol: TCP
-          port: 9000
-        - protocol: UDP
-          port: 9000
-
-    # HTTPS (checkpoint sync, relays,...)
-    - ports:
-        - protocol: TCP
-          port: 443
-
+    # DNS to kube-system (CoreDNS in kind)
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+    # P2P egress to internet
+    - ports:
+        - { protocol: TCP, port: 30303 }
+        - { protocol: UDP, port: 30303 }
+        - { protocol: TCP, port: 9000 }
+        - { protocol: UDP, port: 9000 }
+
+    # HTTPS outbound (checkpoint sync, relays, etc.)
+    - ports:
+        - { protocol: TCP, port: 443 }
+
+    # Allow sentry1-consensus -> sentry1-execution Engine API
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: sentry1
               client: execution
       ports:
-        - protocol: TCP
-          port: 8551
+        - { protocol: TCP, port: 8551 }
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -81,61 +83,58 @@ spec:
   podSelector:
     matchLabels:
       component: sentry2
-  policyTypes:
-    - Ingress
-    - Egress
+  policyTypes: ["Ingress","Egress"]
 
   ingress:
     - from:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: validator
       ports:
-        - protocol: TCP
-          port: 8551
-        - protocol: TCP
-          port: 8545
-        - protocol: TCP
-          port: 5052
+        - { protocol: TCP, port: 8551 }
+        - { protocol: TCP, port: 8545 }
+        - { protocol: TCP, port: 5052 }
 
     - ports:
-        - protocol: TCP
-          port: 30303
-        - protocol: UDP
-          port: 30303
-        - protocol: TCP
-          port: 9000
-        - protocol: UDP
-          port: 9000
+        - { protocol: TCP, port: 30303 }
+        - { protocol: UDP, port: 30303 }
+        - { protocol: TCP, port: 9000 }
+        - { protocol: UDP, port: 9000 }
 
   egress:
-    - ports:
-        - protocol: UDP
-          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
 
     - ports:
-        - protocol: TCP
-          port: 30303
-        - protocol: UDP
-          port: 30303
-    - ports:
-        - protocol: TCP
-          port: 9000
-        - protocol: UDP
-          port: 9000
+        - { protocol: TCP, port: 30303 }
+        - { protocol: UDP, port: 30303 }
+        - { protocol: TCP, port: 9000 }
+        - { protocol: UDP, port: 9000 }
 
     - ports:
-        - protocol: TCP
-          port: 443
+        - { protocol: TCP, port: 443 }
 
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: sentry2
               client: execution
       ports:
-        - protocol: TCP
-          port: 8551
+        - { protocol: TCP, port: 8551 }
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -149,77 +148,101 @@ spec:
   podSelector:
     matchLabels:
       component: validator
-  policyTypes:
-    - Ingress
-    - Egress
+  policyTypes: ["Ingress","Egress"]
 
   ingress:
-    - ports:
-        - protocol: TCP
-          port: 5054 # consensus metrics
-        - protocol: TCP
-          port: 5064 # vc metrics
-        - protocol: TCP
-          port: 5052 # consensus http
-
+    # Allow Prometheus scrape from monitoring namespace only
     - from:
-        - podSelector:
+        - namespaceSelector:
             matchLabels:
-              component: validator
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            # TODO: adjust to Prometheus labels if needed
+            matchLabels:
+              app: prometheus
       ports:
-        - protocol: TCP
-          port: 5052
+        - { protocol: TCP, port: 5054 } # consensus metrics
+        - { protocol: TCP, port: 5064 } # vc metrics
+
+    # Allow BN HTTP inside namespace (optional; used if scrape/need internal access)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+      ports:
+        - { protocol: TCP, port: 5052 }
 
   egress:
     # DNS
-    - ports:
-        - protocol: UDP
-          port: 53
-
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+    # Validator -> BOTH sentry execution clients (engine/jsonrpc)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: sentry1
               client: execution
       ports:
-        - protocol: TCP
-          port: 8551
-        - protocol: TCP
-          port: 8545
+        - { protocol: TCP, port: 8551 }
+        - { protocol: TCP, port: 8545 }
 
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: sentry2
               client: execution
       ports:
-        - protocol: TCP
-          port: 8551
-        - protocol: TCP
-          port: 8545
+        - { protocol: TCP, port: 8551 }
+        - { protocol: TCP, port: 8545 }
 
+    # VC -> BOTH sentry beacon nodes (HA)
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: sentry1
               client: consensus
       ports:
-        - protocol: TCP
-          port: 5052
+        - { protocol: TCP, port: 5052 }
+
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: sentry2
               client: consensus
       ports:
-        - protocol: TCP
-          port: 5052
+        - { protocol: TCP, port: 5052 }
 
+    # Optional: allow validator pods to talk to validator-consensus (if VC uses it too)
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace.validators | quote }}
+          podSelector:
             matchLabels:
               component: validator
               client: consensus
       ports:
-        - protocol: TCP
-          port: 5052
+        - { protocol: TCP, port: 5052 }
+
+  {{- end }}
